@@ -1,4 +1,5 @@
 import sys
+import argparse
 import logging
 from src.config import Config, ConfigError
 from src.storage import StorageManager
@@ -7,7 +8,15 @@ from src.stores.blinkit import BlinkitStore
 from src.stores.zepto import ZeptoStore
 from src.checker import StockChecker
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Hot Wheels Stock Alert system.")
+    parser.add_argument(
+        "--health",
+        action="store_true",
+        help="Send a health report message after scanning stores."
+    )
+    args = parser.parse_args(argv)
+
     try:
         # Load and validate configurations from env/dotenv
         config = Config()
@@ -38,7 +47,7 @@ def main() -> int:
         
         # Initialize and run checker orchestrator
         checker = StockChecker(config, storage, notifier, stores)
-        checker.run_check()
+        checker.run_check(health_mode=args.health)
         return 0
         
     except Exception as e:

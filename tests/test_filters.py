@@ -14,7 +14,10 @@ def test_normalize_text():
     assert normalize_text(None) == ""
 
 def test_is_watchlist_match():
-    watchlist = ["Skyline", "Supra", "Mazda 787B", "Porsche", "GT-R"]
+    watchlist = {
+        "keywords": ["Skyline", "Supra", "Mazda 787B", "Porsche", "GT-R"],
+        "exclude": ["Keychain", "Sticker"]
+    }
     
     # Positive matches
     assert is_watchlist_match("Nissan Skyline GT-R R33", watchlist) is True
@@ -28,15 +31,23 @@ def test_is_watchlist_match():
     assert is_watchlist_match("Honda Civic Type R", watchlist) is False
     assert is_watchlist_match("Hot Wheels HW Bus", watchlist) is False
     assert is_watchlist_match("", watchlist) is False
-    assert is_watchlist_match("Porsche", []) is False
+    assert is_watchlist_match("Porsche", {}) is False
+
+    # Exclusions
+    assert is_watchlist_match("Porsche 911 Keychain", watchlist) is False
+    assert is_watchlist_match("Skyline Sticker", watchlist) is False
 
 def test_filter_products():
-    watchlist = ["Skyline", "Porsche"]
+    watchlist = {
+        "keywords": ["Skyline", "Porsche"],
+        "exclude": ["Keychain"]
+    }
     products = [
         Product("Nissan Skyline GT-R", 179.0, "http://link1", "Blinkit", "img1", "In Stock"),
         Product("Porsche 911", 179.0, "http://link2", "Blinkit", "img2", "Out of Stock"), # Out of stock, ignore!
         Product("Honda Civic", 179.0, "http://link3", "Blinkit", "img3", "In Stock"),     # Not on watchlist, ignore!
-        Product("Porsche Cayman", 179.0, "http://link4", "Zepto", "img4", "In Stock")    # In stock and matches watchlist
+        Product("Porsche Cayman", 179.0, "http://link4", "Zepto", "img4", "In Stock"),    # In stock and matches watchlist
+        Product("Skyline Keychain", 179.0, "http://link5", "Blinkit", "img5", "In Stock") # Excluded, ignore!
     ]
     
     filtered = filter_products(products, watchlist)

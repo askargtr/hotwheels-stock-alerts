@@ -1,8 +1,14 @@
 import os
 import json
 import logging
+import hashlib
 from typing import Dict, List, Any
 from src.models import Product
+
+def get_product_hash(product: Product) -> str:
+    """Generates a stable SHA-256 hash representation of a product using store and URL."""
+    hash_input = f"{product.store}:{product.url}"
+    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
 class StorageManager:
     """
@@ -61,32 +67,32 @@ class StorageManager:
         - Returns False if the product was already in stock during the last run and alerted.
         """
         store = product.store
-        name = product.name
-        key = f"{store}:{name}"
+        key = get_product_hash(product)
 
         in_stock_last_run = self.state["in_stock_last_seen"].get(store, [])
         alert_history = self.state["alert_history"]
 
         # If product was in stock last run and we have already notified about it,
         # do not duplicate the notification.
-        if key in alert_history and name in in_stock_last_run:
-            logging.debug(f"Skipping duplicate alert: {key} is still in stock.")
+        if key in alert_history and key in in_stock_last_run:
+            logging.debug(f"Skipping duplicate alert: {product.store}:{product.name} is still in stock.")
             return False
 
         # Otherwise, this is a new stock or a restock
-        logging.info(f"New stock/restock detected for: {key}")
+        logging.info(f"New stock/restock detected for: {product.store}:{product.name}")
         return True
 
     def record_notification(self, product: Product, timestamp: str) -> None:
         """Records a sent notification timestamp to the history."""
-        key = f"{product.store}:{product.name}"
+        key = get_product_hash(product)
         self.state["alert_history"][key] = timestamp
         self.save_state()
 
-    def update_in_stock(self, store: str, current_in_stock_names: List[str]) -> None:
+    def update_in_stock(self, store: str, current_in_stock_products: List[Product]) -> None:
         """
         Updates the list of products that were in stock during this run.
         This allows detecting when a product goes out of stock and comes back later.
         """
-        self.state["in_stock_last_seen"][store] = current_in_stock_names
+        current_in_stock_keys = [get_product_hash(p) for p in current_in_stock_products]
+        self.state["in_stock_last_seen"][store] = current_in_stock_keys
         self.save_state()

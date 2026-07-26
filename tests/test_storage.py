@@ -30,7 +30,7 @@ def test_should_notify_duplicate_prevention(temp_db_path):
     
     # Simulate marking as notified and updating in-stock
     storage.record_notification(product, "2026-07-26T09:35:00Z")
-    storage.update_in_stock(product.store, [product.name])
+    storage.update_in_stock(product.store, [product])
     
     # 2. Second check - same product remains in stock, should return False (no duplicate notification)
     assert storage.should_notify(product) is False
@@ -42,7 +42,7 @@ def test_should_notify_restock(temp_db_path):
     # 1. Notify initially
     assert storage.should_notify(product) is True
     storage.record_notification(product, "2026-07-26T09:35:00Z")
-    storage.update_in_stock(product.store, [product.name])
+    storage.update_in_stock(product.store, [product])
     
     # 2. Product goes out of stock (removed from active list)
     storage.update_in_stock(product.store, [])

@@ -65,24 +65,35 @@ class ZeptoStore(BaseStore):
             headers["x-pincode"] = self.location.strip()
         return headers
 
-    def search(self, query: str) -> List[Product]:
-        """Searches Zepto for products matching the query."""
+    def _build_request(self, query: str) -> Dict[str, Any]:
+        """Builds URL, headers, and JSON payload for the Zepto search request."""
         loc_headers = self._parse_location()
         search_url = "https://api.zeptonow.com/api/v1/product/search/"
-        
-        # Set lat/lon directly in session headers
         headers = {**self.session.headers, **loc_headers}
-        
         payload = {
             "query": query,
             "pageNumber": 0,
             "pageSize": 30
         }
+        return {
+            "url": search_url,
+            "json": payload,
+            "headers": headers
+        }
+
+    def search(self, query: str) -> List[Product]:
+        """Searches Zepto for products matching the query."""
+        req_config = self._build_request(query)
         
         try:
             logger.info(f"Searching {self.name} for '{query}'...")
             # Use 8 seconds connection/read timeout
-            response = self.session.post(search_url, json=payload, headers=headers, timeout=8)
+            response = self.session.post(
+                req_config["url"],
+                json=req_config["json"],
+                headers=req_config["headers"],
+                timeout=8
+            )
             
             if response.status_code == 200:
                 data = response.json()

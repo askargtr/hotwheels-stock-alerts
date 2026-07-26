@@ -27,7 +27,7 @@ class Config:
         self.alerts_db_path: str = os.getenv("ALERTS_DB_PATH", "alerts.json")
 
         # Load watchlist
-        self.watchlist: List[str] = self._load_watchlist()
+        self.watchlist: dict = self._load_watchlist()
 
     def _get_required_env(self, key: str) -> str:
         """Retrieves a required environment variable or raises a ConfigError."""
@@ -36,21 +36,41 @@ class Config:
             raise ConfigError(f"Missing required environment variable: {key}")
         return val.strip()
 
-    def _load_watchlist(self) -> List[str]:
-        """Loads and parses the watchlist JSON file."""
+    def _load_watchlist(self) -> dict:
+        """Loads and parses the watchlist JSON file supporting both lists and structured dicts."""
         if not os.path.exists(self.watchlist_path):
             # Fallback/warning if config/watchlist.json is missing, though we package it
             logging.warning(
                 f"Watchlist file not found at '{self.watchlist_path}'. Using empty watchlist."
             )
-            return []
+            return {"keywords": [], "exclude": []}
 
         try:
             with open(self.watchlist_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                if not isinstance(data, list):
-                    raise ConfigError("Watchlist JSON must be a list of strings.")
-                return [str(item) for item in data]
+                
+                # Check for flat list format
+                if isinstance(data, list):
+                    return {
+                        "keywords": [str(item) for item in data],
+                        "exclude": []
+                    }
+                # Check for structured dictionary format
+                elif isinstance(data, dict):
+                    keywords = data.get("keywords", [])
+                    exclude = data.get("exclude", [])
+                    
+                    if not isinstance(keywords, list):
+                        raise ConfigError("Watchlist JSON 'keywords' must be a list of strings.")
+                    if not isinstance(exclude, list):
+                        raise ConfigError("Watchlist JSON 'exclude' must be a list of strings.")
+                        
+                    return {
+                        "keywords": [str(item) for item in keywords],
+                        "exclude": [str(item) for item in exclude]
+                    }
+                else:
+                    raise ConfigError("Watchlist JSON must be a list or a dictionary.")
         except json.JSONDecodeError as e:
             raise ConfigError(f"Failed to parse watchlist JSON: {e}")
         except Exception as e:

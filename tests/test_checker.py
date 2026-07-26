@@ -10,7 +10,10 @@ from src.checker import StockChecker
 @pytest.fixture
 def mock_config():
     config = MagicMock(spec=Config)
-    config.watchlist = ["Skyline", "Porsche"]
+    config.watchlist = {
+        "keywords": ["Skyline", "Porsche"],
+        "exclude": []
+    }
     return config
 
 @pytest.fixture
@@ -24,6 +27,7 @@ def mock_storage():
 def mock_notifier():
     notifier = MagicMock(spec=TelegramNotifier)
     notifier.send_alert.return_value = True
+    notifier.send_health_report.return_value = True
     return notifier
 
 def test_checker_success_flow(mock_config, mock_storage, mock_notifier):
@@ -52,7 +56,7 @@ def test_checker_success_flow(mock_config, mock_storage, mock_notifier):
     mock_storage.record_notification.assert_called_once()
     
     # Verify updated in stock status
-    mock_storage.update_in_stock.assert_called_once_with("Blinkit", ["Nissan Skyline GT-R"])
+    mock_storage.update_in_stock.assert_called_once_with("Blinkit", [p1])
 
 def test_checker_store_error_handling(mock_config, mock_storage, mock_notifier):
     # Store 1 fails with StoreError
@@ -79,4 +83,16 @@ def test_checker_store_error_handling(mock_config, mock_storage, mock_notifier):
     
     # Storage should have updated state ONLY for store 2 (Zepto)
     # Storage should NOT update state for store 1 (Blinkit) due to error
-    mock_storage.update_in_stock.assert_called_once_with("Zepto", ["Nissan Skyline"])
+    mock_storage.update_in_stock.assert_called_once_with("Zepto", [p])
+
+def test_checker_health_mode(mock_config, mock_storage, mock_notifier):
+    store = MagicMock(spec=BaseStore)
+    store.name = "Blinkit"
+    p = Product("Porsche 911", 179.0, "url", "Blinkit", "img", "In Stock")
+    store.search.return_value = [p]
+    
+    checker = StockChecker(mock_config, mock_storage, mock_notifier, [store])
+    checker.run_check(health_mode=True)
+    
+    # Verify health report was sent
+    mock_notifier.send_health_report.assert_called_once_with(1, 1)

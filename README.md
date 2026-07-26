@@ -52,6 +52,36 @@ hotwheels-stock-alerts/
 
 ---
 
+## System Architecture
+
+```text
+       ┌────────────────────────┐
+       │     GitHub Actions     │ (Triggers every 15 mins / daily health report)
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │   Blinkit & Zepto      │ (Scrapes storefront API endpoints)
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │     Filters Engine     │ (Matches watchlist keywords & exclusions)
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │    Storage Manager     │ (De-duplicates using SHA-256 store + URL hash)
+       └───────────┬────────────┘
+                   │
+                   ▼
+       ┌────────────────────────┐
+       │    Telegram Notifier   │ (Pushes premium markdown notifications)
+       └────────────────────────┘
+```
+
+---
+
 ## Configuration
 
 The application is configured using environment variables. You can specify these in your OS environment or create a `.env` file in the root folder of the project.
@@ -135,12 +165,11 @@ Navigate to your repository page on GitHub:
    - `BLINKIT_LOCATION`
    - `ZEPTO_LOCATION`
 
-### How Caching Works (DevOps Architecture)
-To satisfy the duplicate notification requirement without writing back to Git (which creates thousands of automated commits), the workflow utilizes `actions/cache`:
-1. It looks for a cache matching `stock-alerts-`.
-2. If found, it restores `alerts.json` containing previous runs' active in-stock listings and notification logs.
-3. The checker runs, updates states, and saves the updated state back to a new cache key.
-4. If a casting goes out of stock in Blinkit, the checker notes the absence, and on the next run, it will trigger a new alert if the casting is restocked.
+### State Persistence (Durable DevOps Architecture)
+To prevent duplicate alerts and handle restocks reliably, the workflow persists state by committing `alerts.json` back to the repository after a check run:
+1. The checking script runs, scans the stores, and updates the local `alerts.json` file.
+2. If there are new notification timestamps or state updates, the Git workflow stage automatically commits the modified `alerts.json` under `github-actions[bot]` user and pushes it back to the repository.
+3. Overlapping runs are prevented using GitHub concurrency locks (`cancel-in-progress: true`), ensuring write safety on the state file.
 
 ---
 

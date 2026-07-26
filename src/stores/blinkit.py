@@ -58,8 +58,8 @@ class BlinkitStore(BaseStore):
             headers["x-location-id"] = self.location.strip()
         return headers
 
-    def search(self, query: str) -> List[Product]:
-        """Searches Blinkit for products matching the query."""
+    def _build_request(self, query: str) -> Dict[str, Any]:
+        """Builds URL, headers, and parameters for the Blinkit search request."""
         loc_headers = self._parse_location()
         search_url = "https://grofers.com/v4/search/"
         params = {
@@ -67,13 +67,26 @@ class BlinkitStore(BaseStore):
             "start": 0,
             "size": 30
         }
-        
         headers = {**self.session.headers, **loc_headers}
+        return {
+            "url": search_url,
+            "params": params,
+            "headers": headers
+        }
+
+    def search(self, query: str) -> List[Product]:
+        """Searches Blinkit for products matching the query."""
+        req_config = self._build_request(query)
         
         try:
             logger.info(f"Searching {self.name} for '{query}'...")
             # Use 8 seconds connection/read timeout
-            response = self.session.get(search_url, params=params, headers=headers, timeout=8)
+            response = self.session.get(
+                req_config["url"],
+                params=req_config["params"],
+                headers=req_config["headers"],
+                timeout=8
+            )
             
             if response.status_code == 200:
                 data = response.json()

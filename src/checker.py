@@ -24,19 +24,24 @@ class StockChecker:
         self.notifier = notifier
         self.stores = stores
 
-    def run_check(self) -> None:
+    def run_check(self, health_mode: bool = False) -> None:
         """Executes stock check flow for all configured stores."""
-        logger.info("Starting stock check run...")
+        logger.info(f"Starting stock check run (health_mode={health_mode})...")
+        
+        total_scanned = 0
+        total_matches = 0
         
         for store in self.stores:
             try:
                 # Query the store
                 # We search for 'Hot Wheels' since we are monitoring Hot Wheels castings
                 all_products = store.search("Hot Wheels")
+                total_scanned += len(all_products)
                 logger.info(f"Retrieved {len(all_products)} products from {store.name}.")
                 
                 # Filter for in-stock products matching the watchlist
                 matching_in_stock = filter_products(all_products, self.config.watchlist)
+                total_matches += len(matching_in_stock)
                 logger.info(f"Found {len(matching_in_stock)} watchlist matches in stock for {store.name}.")
                 
                 # Check alerts and notify
@@ -49,8 +54,7 @@ class StockChecker:
                 
                 # Update the store's list of currently in-stock watchlist items.
                 # This lets us detect when items go out of stock and come back later.
-                current_matched_names = [p.name for p in matching_in_stock]
-                self.storage.update_in_stock(store.name, current_matched_names)
+                self.storage.update_in_stock(store.name, matching_in_stock)
                 
             except StoreError as e:
                 # Log the error, but continue with the other stores. Do not update state for this store.
@@ -59,4 +63,7 @@ class StockChecker:
                 # Catch-all to prevent application crash on unexpected exceptions
                 logger.error(f"Unexpected error checking store {store.name}: {e}", exc_info=True)
                 
+        if health_mode:
+            self.notifier.send_health_report(total_scanned, total_matches)
+            
         logger.info("Stock check run completed.")

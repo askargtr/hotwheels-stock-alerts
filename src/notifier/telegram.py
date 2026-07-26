@@ -30,15 +30,15 @@ class TelegramNotifier:
         )
         self.session.mount("https://", HTTPAdapter(max_retries=retries))
 
-    def _get_ist_time_str(self) -> str:
+    def _get_ist_time_str(self, format_str: str = "%I:%M %p") -> str:
         """Helper to get current time in IST timezone (UTC+5:30)."""
         utc_now = datetime.now(timezone.utc)
         ist_now = utc_now + timedelta(hours=5, minutes=30)
-        return ist_now.strftime("%Y-%m-%d %H:%M IST")
+        return ist_now.strftime(format_str)
 
     def _format_message(self, product: Product) -> str:
         """Formats the notification text in Markdown as requested."""
-        time_str = self._get_ist_time_str()
+        time_str = self._get_ist_time_str(format_str="%I:%M %p IST")
         
         # Format the price. If price is 179.0, format as 179.
         price_str = str(int(product.price)) if product.price.is_integer() else f"{product.price:.2f}"
@@ -46,18 +46,15 @@ class TelegramNotifier:
         # Build raw markdown string
         message = (
             f"🚨 *Hot Wheels Restock*\n\n"
-            f"*Store:*\n"
+            f"🏪 *Store*\n"
             f"{product.store}\n\n"
-            f"*Casting:*\n"
+            f"🚗 *Casting*\n"
             f"{product.name}\n\n"
-            f"*Price:*\n"
+            f"💰 *Price*\n"
             f"₹{price_str}\n\n"
-            f"*Status:*\n"
-            f"{product.availability}\n\n"
-            f"*Buy:*\n"
+            f"🔗 *Buy*\n"
             f"{product.url}\n\n"
-            f"*Time:*\n"
-            f"{time_str}"
+            f"🕒 {time_str}"
         )
         return message
 
@@ -92,4 +89,40 @@ class TelegramNotifier:
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to send Telegram message for {product.name}: {e}")
+            return False
+
+    def send_health_report(self, total_scanned: int, total_matches: int) -> bool:
+        """
+        Sends a health monitoring report formatted as status update.
+        Returns True if successful, False otherwise.
+        """
+        time_str = self._get_ist_time_str(format_str="%I:%M %p")
+        message = (
+            f"✅ *Stock monitor running*\n\n"
+            f"*Last check:*\n"
+            f"{time_str}\n\n"
+            f"*Products scanned:*\n"
+            f"{total_scanned}\n\n"
+            f"*Matches:*\n"
+            f"{total_matches}"
+        )
+        payload = {
+            "chat_id": self.chat_id,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+
+        try:
+            logger.info("Sending health status Telegram notification...")
+            response = self.session.post(self.api_url, json=payload, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            if not result.get("ok"):
+                logger.error(f"Telegram API returned an error: {result.get('description')}")
+                return False
+            logger.info("Health status notification sent successfully.")
+            return True
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to send health status Telegram message: {e}")
             return False

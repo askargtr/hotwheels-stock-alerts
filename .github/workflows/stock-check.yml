@@ -4,12 +4,26 @@ on:
   schedule:
     # Run every 15 minutes
     - cron: '*/15 * * * *'
+    # Run every morning at 08:00 AM IST (02:30 AM UTC)
+    - cron: '30 2 * * *'
   workflow_dispatch:
     # Allow manual triggering from GitHub UI
+    inputs:
+      health:
+        description: 'Run health check report'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: stock-check
+  cancel-in-progress: true
 
 jobs:
   check-stock:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -26,17 +40,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Restore Stock Alert State Cache
-        id: cache-state
-        uses: actions/cache/restore@v4
-        with:
-          path: alerts.json
-          # Use run_id to ensure a cache miss on saving (since caches are immutable)
-          key: stock-alerts-${{ github.run_id }}-${{ github.run_number }}
-          # Restore the latest saved cache starting with 'stock-alerts-'
-          restore-keys: |
-            stock-alerts-
-
       - name: Run Stock Check Pipeline
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -46,11 +49,21 @@ jobs:
           LOG_LEVEL: "INFO"
           SIMULATE_STORES: "false" # In production GitHub action, we try to run real queries
         run: |
-          python src/main.py
+          if [ "${{ github.event.schedule }}" = "30 2 * * *" ] || [ "${{ inputs.health }}" = "true" ]; then
+            python src/main.py --health
+          else
+            python src/main.py
+          fi
 
-      - name: Save Updated Stock Alert State Cache
-        if: always() # Save even if check errors, to preserve partial updates/errors
-        uses: actions/cache/save@v4
-        with:
-          path: alerts.json
-          key: stock-alerts-${{ github.run_id }}-${{ github.run_number }}
+      - name: Commit and Push Changes
+        if: always() # Save state changes even if some checks failed to protect state consistency
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add alerts.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: Update stock alert state [skip ci]"
+            git push
+          fi
