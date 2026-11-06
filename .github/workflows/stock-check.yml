@@ -1,3 +1,4 @@
+
 name: Hot Wheels Stock Checker
 
 on:
@@ -33,7 +34,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # caching pip dependencies automatically
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -47,16 +48,16 @@ jobs:
           BLINKIT_LOCATION: ${{ secrets.BLINKIT_LOCATION }}
           ZEPTO_LOCATION: ${{ secrets.ZEPTO_LOCATION }}
           LOG_LEVEL: "INFO"
-          SIMULATE_STORES: "false" # In production GitHub action, we try to run real queries
+          SIMULATE_STORES: "true"
         run: |
           if [ "${{ github.event.schedule }}" = "30 2 * * *" ] || [ "${{ inputs.health }}" = "true" ]; then
-            python src/main.py --health
+            python -m src.main --health
           else
-            python src/main.py
+            python -m src.main
           fi
 
       - name: Commit and Push Changes
-        if: always() # Save state changes even if some checks failed to protect state consistency
+        if: always()
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
