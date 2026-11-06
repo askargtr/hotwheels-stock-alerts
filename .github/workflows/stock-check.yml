@@ -48,7 +48,7 @@ jobs:
           BLINKIT_LOCATION: ${{ secrets.BLINKIT_LOCATION }}
           ZEPTO_LOCATION: ${{ secrets.ZEPTO_LOCATION }}
           LOG_LEVEL: "INFO"
-          SIMULATE_STORES: "true"
+          SIMULATE_STORES: "false"
         run: |
           if [ "${{ github.event.schedule }}" = "30 2 * * *" ] || [ "${{ inputs.health }}" = "true" ]; then
             python -m src.main --health
