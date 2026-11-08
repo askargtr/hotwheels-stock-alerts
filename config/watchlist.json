@@ -1,36 +1,13 @@
-
 {
-  "keywords": [
-    "Hot Wheels",
-    "Hotwheels",
-    "Treasure Hunt",
-    "Super Treasure Hunt",
-    "Skyline",
-    "GT-R",
-    "R32",
-    "R33",
-    "R34",
-    "Hakosuka",
-    "Supra",
-    "Mazda 787B",
-    "Ferrari",
-    "Porsche",
-    "Bugatti",
-    "Lamborghini",
-    "McLaren",
-    "Koenigsegg",
-    "Pagani",
-    "Premium",
-    "Car Culture",
-    "Fast & Furious",
-    "Boulevard",
-    "Mainline",
-    "2025",
-    "2026"
-  ],
+  "require_any": ["Hot Wheels", "Hotwheels"],
+  "keywords": [],
   "exclude": [
-    "Keychain",
-    "Sticker"
+    "keychain", "key ring", "sticker", "track", "track builder",
+    "bus", "aircraft", "airplane", "plane", "train", "motorcycle", "motorbike", "boat",
+    "playset", "play set", "launcher", "loop set", "garage",
+    "display case", "storage case", "carry case", "pencil case",
+    "backpack", "lunch box", "clothing", "apparel", "coloring book",
+    "activity book", "poster", "wall art", "mug", "bottle", "accessory",
+    "accessories", "replacement part", "replacement wheel"
   ]
 }
-

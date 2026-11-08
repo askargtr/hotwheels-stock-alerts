@@ -1,98 +1,65 @@
-import os
+import hashlib
 import json
 import logging
-import hashlib
-from typing import Dict, List, Any
+import os
+from typing import Any, Dict, List
+
 from src.models import Product
 
+
 def get_product_hash(product: Product) -> str:
-    """Generates a stable SHA-256 hash representation of a product using store and URL."""
-    hash_input = f"{product.store}:{product.url}"
-    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+    identity = f"{product.store}:{product.url}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
 
 class StorageManager:
-    """
-    Manages the local state of active listings and notification history 
-    to prevent duplicate alerts and handle restocks.
-    """
+    """Persistent notification and in-stock state with atomic file replacement."""
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.state: Dict[str, Any] = self._load_state()
 
+    @staticmethod
+    def _default_state() -> Dict[str, Any]:
+        return {"in_stock_last_seen": {}, "alert_history": {}}
+
     def _load_state(self) -> Dict[str, Any]:
-        """Loads state from the JSON file, or initializes it if not found/corrupted."""
         if not os.path.exists(self.db_path):
-            return self._get_default_state()
-
+            return self._default_state()
         try:
-            with open(self.db_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
-                # Validation of root keys
-                if "in_stock_last_seen" not in state or "alert_history" not in state:
-                    logging.warning("State file format was invalid. Resetting to default.")
-                    return self._get_default_state()
-                return state
-        except json.JSONDecodeError:
-            logging.warning("State file was corrupted. Resetting to default.")
-            return self._get_default_state()
-        except Exception as e:
-            logging.error(f"Failed to read state file: {e}. Using empty state.")
-            return self._get_default_state()
-
-    def _get_default_state(self) -> Dict[str, Any]:
-        """Returns default empty state structure."""
-        return {
-            "in_stock_last_seen": {},  # Maps store name (str) -> list of product names (List[str])
-            "alert_history": {}        # Maps "store:product_name" -> ISO timestamp of last alert (str)
-        }
+            with open(self.db_path, "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+            if not isinstance(state, dict):
+                raise ValueError("root must be an object")
+            active = state.get("in_stock_last_seen")
+            history = state.get("alert_history")
+            if not isinstance(active, dict) or not isinstance(history, dict):
+                raise ValueError("required state keys are missing or invalid")
+            return {"in_stock_last_seen": active, "alert_history": history}
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            logging.warning("State file could not be loaded (%s); starting with empty state.", exc)
+            return self._default_state()
 
     def save_state(self) -> None:
-        """Saves current state to the local JSON file."""
-        try:
-            # Write to a temporary file first, then rename it to avoid corruption
-            temp_path = f"{self.db_path}.tmp"
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(self.state, f, indent=2)
-            if os.path.exists(self.db_path):
-                os.remove(self.db_path)
-            os.rename(temp_path, self.db_path)
-        except Exception as e:
-            logging.error(f"Failed to save state file: {e}")
+        directory = os.path.dirname(os.path.abspath(self.db_path))
+        os.makedirs(directory, exist_ok=True)
+        temp_path = f"{self.db_path}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as handle:
+            json.dump(self.state, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, self.db_path)
 
     def should_notify(self, product: Product) -> bool:
-        """
-        Determines whether a notification should be sent for a product.
-        - Returns True if the product is new or has come back in stock after being sold out.
-        - Returns False if the product was already in stock during the last run and alerted.
-        """
-        store = product.store
         key = get_product_hash(product)
-
-        in_stock_last_run = self.state["in_stock_last_seen"].get(store, [])
-        alert_history = self.state["alert_history"]
-
-        # If product was in stock last run and we have already notified about it,
-        # do not duplicate the notification.
-        if key in alert_history and key in in_stock_last_run:
-            logging.debug(f"Skipping duplicate alert: {product.store}:{product.name} is still in stock.")
-            return False
-
-        # Otherwise, this is a new stock or a restock
-        logging.info(f"New stock/restock detected for: {product.store}:{product.name}")
-        return True
+        active = self.state["in_stock_last_seen"].get(product.store, [])
+        history = self.state["alert_history"]
+        return not (key in history and key in active)
 
     def record_notification(self, product: Product, timestamp: str) -> None:
-        """Records a sent notification timestamp to the history."""
-        key = get_product_hash(product)
-        self.state["alert_history"][key] = timestamp
+        self.state["alert_history"][get_product_hash(product)] = timestamp
         self.save_state()
 
-    def update_in_stock(self, store: str, current_in_stock_products: List[Product]) -> None:
-        """
-        Updates the list of products that were in stock during this run.
-        This allows detecting when a product goes out of stock and comes back later.
-        """
-        current_in_stock_keys = [get_product_hash(p) for p in current_in_stock_products]
-        self.state["in_stock_last_seen"][store] = current_in_stock_keys
+    def update_in_stock(self, store: str, products: List[Product]) -> None:
+        self.state["in_stock_last_seen"][store] = [get_product_hash(item) for item in products]
         self.save_state()

@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock
 from src.models import Product
 from src.config import Config
@@ -7,92 +6,72 @@ from src.notifier.telegram import TelegramNotifier
 from src.stores.base import BaseStore, StoreError
 from src.checker import StockChecker
 
-@pytest.fixture
-def mock_config():
+
+def make_config():
     config = MagicMock(spec=Config)
-    config.watchlist = {
-        "keywords": ["Skyline", "Porsche"],
-        "exclude": []
-    }
+    config.watchlist = {"require_any": ["Hot Wheels"], "keywords": [], "exclude": ["track"]}
     return config
 
-@pytest.fixture
-def mock_storage():
-    storage = MagicMock(spec=StorageManager)
-    # By default, allow notifications
+
+def test_checker_success_flow():
+    config, storage, notifier = make_config(), MagicMock(spec=StorageManager), MagicMock(spec=TelegramNotifier)
     storage.should_notify.return_value = True
-    return storage
-
-@pytest.fixture
-def mock_notifier():
-    notifier = MagicMock(spec=TelegramNotifier)
     notifier.send_alert.return_value = True
-    notifier.send_health_report.return_value = True
-    return notifier
-
-def test_checker_success_flow(mock_config, mock_storage, mock_notifier):
-    # Mock Store
-    store1 = MagicMock(spec=BaseStore)
-    store1.name = "Blinkit"
-    
-    # Store returns two products, one matching in stock, one out of stock
-    p1 = Product("Nissan Skyline GT-R", 179.0, "url1", "Blinkit", "img1", "In Stock")
-    p2 = Product("Porsche 911", 179.0, "url2", "Blinkit", "img2", "Out of Stock")
-    store1.search.return_value = [p1, p2]
-    
-    checker = StockChecker(mock_config, mock_storage, mock_notifier, [store1])
-    checker.run_check()
-    
-    # Verify we searched for 'Hot Wheels'
-    store1.search.assert_called_once_with("Hot Wheels")
-    
-    # Verify should_notify was called on the in-stock matching product, but not the out of stock one
-    mock_storage.should_notify.assert_called_once_with(p1)
-    
-    # Verify alert was sent for p1
-    mock_notifier.send_alert.assert_called_once_with(p1)
-    
-    # Verify notification recorded
-    mock_storage.record_notification.assert_called_once()
-    
-    # Verify updated in stock status
-    mock_storage.update_in_stock.assert_called_once_with("Blinkit", [p1])
-
-def test_checker_store_error_handling(mock_config, mock_storage, mock_notifier):
-    # Store 1 fails with StoreError
-    store1 = MagicMock(spec=BaseStore)
-    store1.name = "Blinkit"
-    store1.search.side_effect = StoreError("API rate limit")
-    
-    # Store 2 succeeds
-    store2 = MagicMock(spec=BaseStore)
-    store2.name = "Zepto"
-    p = Product("Nissan Skyline", 179.0, "url", "Zepto", "img", "In Stock")
-    store2.search.return_value = [p]
-    
-    checker = StockChecker(mock_config, mock_storage, mock_notifier, [store1, store2])
-    checker.run_check()
-    
-    # Verify store 1 search was called and error handled
-    store1.search.assert_called_once()
-    
-    # Verify store 2 search was called and succeeded
-    store2.search.assert_called_once()
-    mock_storage.should_notify.assert_called_once_with(p)
-    mock_notifier.send_alert.assert_called_once_with(p)
-    
-    # Storage should have updated state ONLY for store 2 (Zepto)
-    # Storage should NOT update state for store 1 (Blinkit) due to error
-    mock_storage.update_in_stock.assert_called_once_with("Zepto", [p])
-
-def test_checker_health_mode(mock_config, mock_storage, mock_notifier):
     store = MagicMock(spec=BaseStore)
     store.name = "Blinkit"
-    p = Product("Porsche 911", 179.0, "url", "Blinkit", "img", "In Stock")
-    store.search.return_value = [p]
-    
-    checker = StockChecker(mock_config, mock_storage, mock_notifier, [store])
+    car = Product("Hot Wheels Nissan Skyline", 179, "https://shop/1", "Blinkit", availability="In Stock")
+    store.search.return_value = [car]
+    checker = StockChecker(config, storage, notifier, [store])
+    assert checker.run_check() is True
+    store.search.assert_called_once_with("Hot Wheels")
+    notifier.send_alert.assert_called_once_with(car)
+    storage.record_notification.assert_called_once()
+    storage.update_in_stock.assert_called_once_with("Blinkit", [car])
+
+
+def test_failed_store_does_not_update_state_and_scan_fails():
+    config, storage, notifier = make_config(), MagicMock(spec=StorageManager), MagicMock(spec=TelegramNotifier)
+    store = MagicMock(spec=BaseStore)
+    store.name = "Blinkit"
+    store.search.side_effect = StoreError("HTTP 403")
+    checker = StockChecker(config, storage, notifier, [store])
+    assert checker.run_check() is False
+    storage.update_in_stock.assert_not_called()
+
+
+def test_one_failed_store_preserves_other_store_success():
+    config, storage, notifier = make_config(), MagicMock(spec=StorageManager), MagicMock(spec=TelegramNotifier)
+    storage.should_notify.return_value = True
+    notifier.send_alert.return_value = True
+    bad = MagicMock(spec=BaseStore)
+    bad.name = "Blinkit"
+    bad.search.side_effect = StoreError("HTTP 403")
+    good = MagicMock(spec=BaseStore)
+    good.name = "Zepto"
+    car = Product("Hot Wheels Porsche 911", 179, "https://shop/2", "Zepto", availability="In Stock")
+    good.search.return_value = [car]
+    checker = StockChecker(config, storage, notifier, [bad, good])
+    assert checker.run_check() is False
+    storage.update_in_stock.assert_called_once_with("Zepto", [car])
+
+
+def test_health_report_includes_store_failures():
+    config, storage, notifier = make_config(), MagicMock(spec=StorageManager), MagicMock(spec=TelegramNotifier)
+    store = MagicMock(spec=BaseStore)
+    store.name = "Blinkit"
+    store.search.side_effect = StoreError("not configured")
+    checker = StockChecker(config, storage, notifier, [store])
     checker.run_check(health_mode=True)
-    
-    # Verify health report was sent
-    mock_notifier.send_health_report.assert_called_once_with(1, 1)
+    notifier.send_health_report.assert_called_once_with(0, 0, {"Blinkit": "not configured"})
+
+
+def test_unknown_stock_status_preserves_state_and_sends_no_alert():
+    config, storage, notifier = make_config(), MagicMock(spec=StorageManager), MagicMock(spec=TelegramNotifier)
+    store = MagicMock(spec=BaseStore)
+    store.name = "Blinkit"
+    unknown_car = Product("Hot Wheels Nissan Skyline", 179, "https://shop/1", "Blinkit", availability="Unknown")
+    store.search.return_value = [unknown_car]
+    checker = StockChecker(config, storage, notifier, [store])
+    assert checker.run_check() is False
+    notifier.send_alert.assert_not_called()
+    storage.update_in_stock.assert_not_called()

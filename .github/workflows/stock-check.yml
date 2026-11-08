@@ -1,70 +1,66 @@
-
 name: Hot Wheels Stock Checker
 
 on:
   schedule:
-    # Run every 15 minutes
+    # Every 15 minutes; 02:30 UTC is already included (08:00 IST).
     - cron: '*/15 * * * *'
-    # Run every morning at 08:00 AM IST (02:30 AM UTC)
-    - cron: '30 2 * * *'
   workflow_dispatch:
-    # Allow manual triggering from GitHub UI
     inputs:
       health:
-        description: 'Run health check report'
+        description: 'Send a Telegram health report'
         required: false
         type: boolean
         default: false
 
 concurrency:
   group: stock-check
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check-stock:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
+          cache: pip
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Stock Check Pipeline
+      - name: Run stock check
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           BLINKIT_LOCATION: ${{ secrets.BLINKIT_LOCATION }}
           ZEPTO_LOCATION: ${{ secrets.ZEPTO_LOCATION }}
-          LOG_LEVEL: "INFO"
-          SIMULATE_STORES: "false"
+          BLINKIT_SEARCH_URL: ${{ secrets.BLINKIT_SEARCH_URL }}
+          ZEPTO_SEARCH_URL: ${{ secrets.ZEPTO_SEARCH_URL }}
+          LOG_LEVEL: INFO
         run: |
-          if [ "${{ github.event.schedule }}" = "30 2 * * *" ] || [ "${{ inputs.health }}" = "true" ]; then
+          if [ "${{ inputs.health }}" = "true" ]; then
             python -m src.main --health
           else
             python -m src.main
           fi
 
-      - name: Commit and Push Changes
+      - name: Persist successful store state
         if: always()
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add alerts.json
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "No state changes to commit"
           else
-            git commit -m "chore: Update stock alert state [skip ci]"
+            git commit -m "chore: update stock alert state [skip ci]"
             git push
           fi

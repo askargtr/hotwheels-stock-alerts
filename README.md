@@ -1,220 +1,80 @@
-# Hot Wheels Stock Alerts
+# Hot Wheels Die-cast Car Stock Alerts
 
-A production-ready, modular, and highly extensible Python stock monitor that tracks **Blinkit** and **Zepto** stores for newly available Hot Wheels castings. Whenever a casting matching your watchlist comes back in stock, it immediately alerts you via Telegram.
+A Python project that can monitor configured store search integrations and send Telegram notifications when a Hot Wheels die-cast car is confirmed in stock.
 
----
+## Important live-integration status
 
-## Features
+**The uploaded project's previous Blinkit and Zepto endpoints were not verified public APIs.** Blinkit returned HTTP 403 and Zepto previously failed DNS resolution. This corrected version intentionally does not call those old endpoints and does not attempt to imitate mobile clients, bypass access controls, or generate fake stock.
 
-- 🏪 **Hyperlocal Store Tracking**: Monitors stock updates in real-time for Blinkit and Zepto using coordinate-based lookup settings.
-- ⚙️ **Configurable Watchlist**: Manage collectible castings (e.g. `Treasure Hunt`, `Skyline`, `Supra`, `Porsche`) via a simple JSON configuration.
-- 🚨 **Anti-Duplicate Engine**: Incorporates a persistent state file (`alerts.json`) that suppresses notifications for items that stay continuously in stock, while instantly alerting you if they sell out and reappear.
-- 💬 **Rich Markdown Alerts**: Delivers clean, descriptive Telegram notifications matching your custom format, with timestamps automatically converted to India Standard Time (IST).
-- 🧩 **Extensible Architecture**: Built on a solid Interface pattern (`BaseStore`), making it trivial to add new store providers (like Hamleys, Amazon, FirstCry) by writing a single subclass.
-- 🔄 **Production-grade CI/CD**: Packages a pre-configured GitHub Actions workflow that runs every 15 minutes and uses secure caches to persist state across runs.
+The Blinkit and Zepto adapters remain disabled until you provide a verified, authorized HTTPS search endpoint for each store. Configure `BLINKIT_SEARCH_URL` and `ZEPTO_SEARCH_URL` only when you have an endpoint and request format authorized by the provider. The included generic request shapes are integration scaffolding, not a claim that either retailer supports them.
 
----
+Without configured endpoints, scans report the store as unavailable and exit with a failure status. This is intentional: an unavailable store must not look like an empty shelf or a successful scan.
 
-## Repository Structure
+## What changed
 
-```text
-hotwheels-stock-alerts/
-├── .github/
-│   └── workflows/
-│       └── stock-check.yml   # Scheduled GitHub Actions cron job
-├── config/
-│   └── watchlist.json        # User defined Hot Wheels watchlist keywords
-├── src/
-│   ├── notifier/
-│   │   ├── __init__.py
-│   │   └── telegram.py        # Telegram Bot integration
-│   ├── stores/
-│   │   ├── __init__.py
-│   │   ├── base.py            # BaseStore adapter contract
-│   │   ├── blinkit.py         # Blinkit crawler implementation
-│   │   └── zepto.py           # Zepto crawler implementation
-│   ├── __init__.py
-│   ├── checker.py             # Main stock checking pipeline orchestration
-│   ├── config.py              # Application configuration and validation
-│   ├── filters.py             # Watchlist normalizer and matching logic
-│   ├── models.py              # Standardized product dataclass
-│   ├── storage.py             # Local state and duplicate prevention
-│   └── main.py                # Command-line entry point
-├── tests/                     # Comprehensive pytest test suite
-│   ├── __init__.py
-│   ├── test_checker.py
-│   ├── test_filters.py
-│   └── test_storage.py
-├── .gitignore
-├── README.md                  # Setup and execution guide
-└── requirements.txt           # Python application dependencies
+- Removed all hardcoded simulated products and all automatic simulation fallback.
+- Removed the old `grofers.com/v4/search/` endpoint and the previous unverified Zepto endpoint.
+- Stock status is `Unknown` unless the response explicitly confirms availability. Only `In Stock` can trigger an alert.
+- Watchlist now requires a Hot Wheels brand match and excludes tracks, playsets, keychains, stickers and other accessories.
+- Store failures preserve the last known in-stock state and make the run fail visibly.
+- Telegram messages use escaped HTML rather than fragile Markdown formatting.
+- State writes use atomic replacement.
+- Scheduled workflow has one 15-minute schedule; 08:00 IST is already one of those runs. Overlapping jobs are queued rather than cancelled.
+- The sample `alerts.json` has been reset because the old history contained demo-product hashes, not verified real-stock events.
+
+## Setup
+
+Python 3.12 or newer is recommended.
+
+```bash
+pip install -r requirements.txt
 ```
 
----
+Set these environment variables (GitHub Actions repository secrets for hosted runs):
 
-## System Architecture
+| Variable | Required | Purpose |
+|---|---:|---|
+| `BOT_TOKEN` | Yes | Telegram bot token |
+| `CHAT_ID` | Yes | Telegram destination chat ID |
+| `BLINKIT_LOCATION` | No | Your store delivery location value, if required by the authorized API |
+| `ZEPTO_LOCATION` | No | Your store delivery location value, if required by the authorized API |
+| `BLINKIT_SEARCH_URL` | No | Verified, authorized HTTPS Blinkit search endpoint |
+| `ZEPTO_SEARCH_URL` | No | Verified, authorized HTTPS Zepto search endpoint |
+| `LOG_LEVEL` | No | Logging level; defaults to `INFO` |
 
-```text
-       ┌────────────────────────┐
-       │     GitHub Actions     │ (Triggers every 15 mins / daily health report)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │   Blinkit & Zepto      │ (Scrapes storefront API endpoints)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │     Filters Engine     │ (Matches watchlist keywords & exclusions)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │    Storage Manager     │ (De-duplicates using SHA-256 store + URL hash)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │    Telegram Notifier   │ (Pushes premium markdown notifications)
-       └────────────────────────┘
+Do not put bot tokens or other credentials in source files or commit them to GitHub. If a real token was ever committed publicly, revoke it and create a replacement.
+
+Create a local `.env` file only on your own computer and keep it out of Git:
+
+```env
+BOT_TOKEN=your_token
+CHAT_ID=your_chat_id
+BLINKIT_LOCATION=your_delivery_location
+ZEPTO_LOCATION=your_delivery_location
+# Add the *_SEARCH_URL variables only after verifying the provider's authorized API contract.
 ```
 
----
+## Run
 
-## Configuration
+```bash
+python -m src.main
+python -m src.main --health
+pytest -q
+```
 
-The application is configured using environment variables. You can specify these in your OS environment or create a `.env` file in the root folder of the project.
+A missing/unverified store endpoint is reported as unavailable. Telegram alerts are sent only for products that pass all of these checks:
 
-| Variable Name | Required | Description | Example |
-| :--- | :--- | :--- | :--- |
-| `BOT_TOKEN` | **Yes** | Telegram Bot API token obtained from @BotFather | `718290:AAFdH...` |
-| `CHAT_ID` | **Yes** | Your Telegram Chat ID or Channel/Group Chat ID | `987654321` or `-10012345678` |
-| `BLINKIT_LOCATION` | **Yes** | Latitude and longitude pair of your delivery address | `12.9716,77.5946` |
-| `ZEPTO_LOCATION` | **Yes** | Latitude and longitude pair of your delivery address | `12.9716,77.5946` |
-| `LOG_LEVEL` | No | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) | `INFO` (Default) |
-| `SIMULATE_STORES` | No | Toggles simulation mode to generate mock results for testing | `true` (Default) / `false` |
+1. The listing name contains Hot Wheels.
+2. It is not an excluded accessory, track or playset.
+3. The provider response explicitly confirms `In Stock`.
+4. The product has a stable HTTPS product URL.
 
----
+## GitHub Actions
 
-## Setup Instructions
+Add `BOT_TOKEN` and `CHAT_ID` as repository Actions secrets. Add location secrets if required by your authorized integration. Add `BLINKIT_SEARCH_URL` / `ZEPTO_SEARCH_URL` only after confirming the endpoints and request/response formats with the retailer or an authorized provider.
 
-### 1. Telegram Bot Setup
-1. Open Telegram and search for the official [@BotFather](https://t.me/BotFather).
-2. Send `/newbot` and follow the instructions to choose a name and username.
-3. Save the **HTTP API Token** provided (this is your `BOT_TOKEN`).
+The workflow runs every 15 minutes. The 08:00 IST time is already included in that schedule; there is no duplicate daily cron. A manual run can request a Telegram health report.
 
-### 2. Getting Your Chat ID
-- **To get your private user chat ID:**
-  1. Message [@userinfobot](https://t.me/userinfobot) or [@raw_data_bot](https://t.me/raw_data_bot) on Telegram.
-  2. It will reply with your unique numerical Chat ID (this is your `CHAT_ID`).
-- **To get a Channel/Group Chat ID:**
-  1. Add your bot to the group or channel as an Administrator.
-  2. Send a dummy message to the channel.
-  3. Open your browser and navigate to:
-     `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-  4. Search the JSON response for the `"chat"` object. The `"id"` starting with a negative sign (e.g. `-100xxxxxxxxx`) is your `CHAT_ID`.
+## Current limitation
 
----
-
-## Running Locally
-
-1. **Prerequisites**: Ensure you have Python 3.12+ installed.
-2. **Clone and Navigate**:
-   ```bash
-   git clone https://github.com/yourusername/hotwheels-stock-alerts.git
-   cd hotwheels-stock-alerts
-   ```
-3. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. **Create Environment Configuration**:
-   Create a `.env` file in the root directory:
-   ```env
-   BOT_TOKEN=your_telegram_bot_token_here
-   CHAT_ID=your_telegram_chat_id_here
-   BLINKIT_LOCATION=12.9716,77.5946
-   ZEPTO_LOCATION=12.9716,77.5946
-   LOG_LEVEL=INFO
-   SIMULATE_STORES=true
-   ```
-   > [!NOTE]
-   > Keep `SIMULATE_STORES=true` initially to run a mock pass and verify that your Telegram bot works. Once confirmed, set it to `false` to attempt real store API connections.
-5. **Run the Application**:
-   ```bash
-   python src/main.py
-   ```
-6. **Run Unit Tests**:
-   ```bash
-   pytest
-   ```
-
----
-
-## Running on GitHub Actions
-
-This repository includes a scheduled workflow that automates execution. It runs every 15 minutes, fetching current stock data and sending alerts.
-
-### Setting Up Secrets
-Navigate to your repository page on GitHub:
-1. Go to **Settings** > **Secrets and variables** > **Actions**.
-2. Click **New repository secret** and add the following:
-   - `BOT_TOKEN`
-   - `CHAT_ID`
-   - `BLINKIT_LOCATION`
-   - `ZEPTO_LOCATION`
-
-### State Persistence (Durable DevOps Architecture)
-To prevent duplicate alerts and handle restocks reliably, the workflow persists state by committing `alerts.json` back to the repository after a check run:
-1. The checking script runs, scans the stores, and updates the local `alerts.json` file.
-2. If there are new notification timestamps or state updates, the Git workflow stage automatically commits the modified `alerts.json` under `github-actions[bot]` user and pushes it back to the repository.
-3. Overlapping runs are prevented using GitHub concurrency locks (`cancel-in-progress: true`), ensuring write safety on the state file.
-
----
-
-## Future Extensibility: Adding a New Store
-
-The project is designed under the Open-Closed Principle. To add a new store (e.g., `FirstCry` or `Hamleys`):
-
-1. **Create a store adapter**: Create a new file in `src/stores/` (e.g. `src/stores/firstcry.py`) inheriting from `BaseStore`:
-   ```python
-   from src.stores.base import BaseStore
-   from src.models import Product
-   from typing import List
-
-   class FirstCryStore(BaseStore):
-       def __init__(self, location: str):
-           self.location = location
-
-       @property
-       def name(self) -> str:
-           return "FirstCry"
-
-       def search(self, query: str) -> List[Product]:
-           # 1. Fetch from FirstCry API
-           # 2. Parse products into List[Product]
-           # 3. Return the list
-           pass
-   ```
-2. **Register the Store**: Instantiate it in `src/main.py`:
-   ```python
-   # Import your adapter
-   from src.stores.firstcry import FirstCryStore
-   
-   # Instantiate and append to stores list in main():
-   stores = [
-       BlinkitStore(config.blinkit_location),
-       ZeptoStore(config.zepto_location),
-       FirstCryStore(config.firstcry_location)  # Added here!
-   ]
-   ```
-3. No other modules (e.g., matching filters, notification builders, coordinator loops, or state storage managers) need to change!
-
----
-
-## Troubleshooting
-
-- **Telegram Message Parsing Failures**: Ensure you don't have unescaped Markdown syntax in configuration names. The notifier uses standard Telegram `Markdown` format.
-- **Geofenced API blocks**: Blinkit and Zepto do not expose public APIs. If you see warnings like `Network error or anti-bot block on Blinkit` when `SIMULATE_STORES=false`, the store's Web Application Firewall (WAF) or location checker is blocking the requests. Ensure you use coordinates matching real dark stores in your city, and consider using rotating residential proxies or configuring cookies in your headers if you plan to scrape continuously.
-- **State reset**: Delete `alerts.json` to purge all notified history and restart checking state.
+This project correction improves safety, filtering, reliability, error visibility and tests. It does **not** restore live retailer data access by itself. Blinkit/Zepto live monitoring remains pending a verified authorized data source and matching response schema. Do not treat a green CI test run as proof of live retailer connectivity.

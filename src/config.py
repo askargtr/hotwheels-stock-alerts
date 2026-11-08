@@ -1,91 +1,54 @@
-import os
 import json
 import logging
-from typing import List
+import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file if it exists
 load_dotenv()
 
+
 class ConfigError(ValueError):
-    """Exception raised for configuration-related errors."""
     pass
 
+
 class Config:
-    """Manages system configuration and environment variables."""
-
     def __init__(self):
-        # Required variables
-        self.bot_token: str = self._get_required_env("BOT_TOKEN")
-        self.chat_id: str = self._get_required_env("CHAT_ID")
-        self.blinkit_location: str = self._get_required_env("BLINKIT_LOCATION")
-        self.zepto_location: str = self._get_required_env("ZEPTO_LOCATION")
+        self.bot_token = self._required("BOT_TOKEN")
+        self.chat_id = self._required("CHAT_ID")
+        self.blinkit_location = os.getenv("BLINKIT_LOCATION", "").strip()
+        self.zepto_location = os.getenv("ZEPTO_LOCATION", "").strip()
+        self.blinkit_search_url = os.getenv("BLINKIT_SEARCH_URL", "").strip()
+        self.zepto_search_url = os.getenv("ZEPTO_SEARCH_URL", "").strip()
+        self.log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+        self.watchlist_path = os.getenv("WATCHLIST_PATH", "config/watchlist.json")
+        self.alerts_db_path = os.getenv("ALERTS_DB_PATH", "alerts.json")
+        self.watchlist = self._load_watchlist()
 
-        # Optional variables
-        self.log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
-        self.watchlist_path: str = os.getenv("WATCHLIST_PATH", "config/watchlist.json")
-        self.alerts_db_path: str = os.getenv("ALERTS_DB_PATH", "alerts.json")
-
-        # Load watchlist
-        self.watchlist: dict = self._load_watchlist()
-
-    def _get_required_env(self, key: str) -> str:
-        """Retrieves a required environment variable or raises a ConfigError."""
-        val = os.getenv(key)
-        if not val or not val.strip():
+    @staticmethod
+    def _required(key: str) -> str:
+        value = os.getenv(key, "").strip()
+        if not value:
             raise ConfigError(f"Missing required environment variable: {key}")
-        return val.strip()
+        return value
 
     def _load_watchlist(self) -> dict:
-        """Loads and parses the watchlist JSON file supporting both lists and structured dicts."""
         if not os.path.exists(self.watchlist_path):
-            # Fallback/warning if config/watchlist.json is missing, though we package it
-            logging.warning(
-                f"Watchlist file not found at '{self.watchlist_path}'. Using empty watchlist."
-            )
-            return {"keywords": [], "exclude": []}
-
+            raise ConfigError(f"Watchlist file not found: {self.watchlist_path}")
         try:
-            with open(self.watchlist_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-                # Check for flat list format
-                if isinstance(data, list):
-                    return {
-                        "keywords": [str(item) for item in data],
-                        "exclude": []
-                    }
-                # Check for structured dictionary format
-                elif isinstance(data, dict):
-                    keywords = data.get("keywords", [])
-                    exclude = data.get("exclude", [])
-                    
-                    if not isinstance(keywords, list):
-                        raise ConfigError("Watchlist JSON 'keywords' must be a list of strings.")
-                    if not isinstance(exclude, list):
-                        raise ConfigError("Watchlist JSON 'exclude' must be a list of strings.")
-                        
-                    return {
-                        "keywords": [str(item) for item in keywords],
-                        "exclude": [str(item) for item in exclude]
-                    }
-                else:
-                    raise ConfigError("Watchlist JSON must be a list or a dictionary.")
-        except json.JSONDecodeError as e:
-            raise ConfigError(f"Failed to parse watchlist JSON: {e}")
-        except Exception as e:
-            raise ConfigError(f"Error loading watchlist: {e}")
+            with open(self.watchlist_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ConfigError(f"Unable to read watchlist: {exc}") from exc
+
+        if not isinstance(data, dict):
+            raise ConfigError("Watchlist must be a JSON object.")
+        for key in ("keywords", "exclude", "require_any"):
+            value = data.get(key, [])
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ConfigError(f"Watchlist '{key}' must be a list of strings.")
+        if not data.get("require_any"):
+            raise ConfigError("Watchlist must define require_any to avoid matching unrelated products.")
+        return data
 
     def setup_logging(self) -> None:
-        """Configures logging for the application."""
-        numeric_level = getattr(logging, self.log_level, logging.INFO)
-        if not isinstance(numeric_level, int):
-            numeric_level = logging.INFO
-
-        logging.basicConfig(
-            level=numeric_level,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            handlers=[
-                logging.StreamHandler()
-            ]
-        )
+        level = getattr(logging, self.log_level, logging.INFO)
+        logging.basicConfig(level=level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
